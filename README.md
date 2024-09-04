@@ -58,12 +58,17 @@ Automatic Installation:
 3. To disable the preview, simply uncheck the box, and the status will update to 'Disabled'.
 4. The preview link will automatically expire after 2 days by default, but you can customize the expiration duration in the plugin's settings.
 
-## Screenshots
-<img width="287" alt="edit-page-enabled" src="https://github.com/user-attachments/assets/3d7a71a4-cdb3-4467-a923-5a2046ed93ce">
-Edit Page with "Enabled public draft preview" feature
 
-<img width="1422" alt="public_draft_page_preview_settings" src="https://github.com/user-attachments/assets/3e1f7ce5-ee1d-4922-9d17-1d8df30ece1f">
-Public Draft Post/Page Preview Settings
+## Screenshots
+
+![Edit Page Enabled](https://github.com/user-attachments/assets/3d7a71a4-cdb3-4467-a923-5a2046ed93ce)  
+**Edit Page with "Enabled public draft preview" feature**  
+
+
+![Public Draft Settings](https://github.com/user-attachments/assets/3e1f7ce5-ee1d-4922-9d17-1d8df30ece1f)  
+**Public Draft Post/Page Preview Settings**  
+
+
 
 ## Changelog
 
