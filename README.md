@@ -1,7 +1,7 @@
-# Public Draft Page Preview Plugin for WordPress #
+# Share Draft Pages #
 **Contributors:** Castomize.com  
 
-**Tags:** public, preview, posts, drafts, anonymous  
+**Tags:** share, draft, pages, posts, public, preview  
 
 **Requires at least:** 5.0  
 
@@ -15,11 +15,11 @@
 
 **License URI:** http://www.gnu.org/licenses/gpl-3.0.html
 
-Public Draft Page Preview allows you to share draft posts or pages with anonymous users via a secure, expiring URL, with customizable expiration settings in the WP admin panel.
+Share Draft Pages allows you to share draft posts or pages with users via a secure, expiring URL, with customizable expiration settings in the WP admin panel.
 
 ## Description
 
-Public Draft Page Preview allows you to share a draft of any post or page with anonymous users before it is published. You can set a custom expiration time directly from the WP admin panel, ensuring full control over access duration.
+Share Draft Pages allows you to share a draft of any post or page with users before it is published. You can set a custom expiration time directly from the WP admin panel, ensuring full control over access duration.
 
 This plugin is perfect for collaborating with external users who don’t have access to your site but need to review content before it goes live. Generate a secure, expiring URL for easy sharing, and manage its availability with a simple checkbox in the post editor.
 
@@ -32,12 +32,12 @@ This plugin is perfect for collaborating with external users who don’t have ac
 
 ## Installation
 
-You can install the Public Draft Page Preview plugin either automatically or manually:
+You can install the Share Draft Pages plugin either automatically or manually:
 Automatic Installation:
 
 ### Automatic Installation
 1. In your WordPress admin area, navigate to the 'Plugins' screen and click 'Add New'.
-2. Search for 'Public Draft Page Preview'.
+2. Search for 'Share Draft Pages'.
 3. Click 'Install Now' and activate the plugin.
 
 ### Manual Installation via FTP
@@ -57,17 +57,6 @@ Automatic Installation:
 2. Copy the automatically generated preview URL and share it with others for external review.
 3. To disable the preview, simply uncheck the box, and the status will update to 'Disabled'.
 4. The preview link will automatically expire after 2 days by default, but you can customize the expiration duration in the plugin's settings.
-
-
-## Screenshots
-
-![Edit Page Enabled](https://github.com/user-attachments/assets/3d7a71a4-cdb3-4467-a923-5a2046ed93ce)  
-**Edit Page with "Enabled public draft preview" feature**  
-
-
-![Public Draft Settings](https://github.com/user-attachments/assets/3e1f7ce5-ee1d-4922-9d17-1d8df30ece1f)  
-**Public Draft Post/Page Preview Settings**  
-
 
 
 ## Changelog

@@ -1,6 +1,6 @@
-=== Public Post Preview ===
+=== Share Draft Pages ===
 Contributors: Castomize.com
-Tags: public, preview, posts, drafts, anonymous
+Tags: share, draft, pages, posts, public
 Requires at least: 5.0
 Tested up to: 6.6
 Requires PHP: 5.6
@@ -23,12 +23,12 @@ Share draft posts or pages with users before publishing, with customizable expir
 
 == Installation ==
 
-You can install the Public Draft Page Preview plugin either automatically or manually:
+You can install the Share Draft Pages plugin either automatically or manually:
 Automatic Installation:
 
 **Automatic Installation:**
 1. In your WordPress admin area, navigate to the 'Plugins' screen and click 'Add New'.
-2. Search for 'Public Draft Page Preview'.
+2. Search for 'Share Draft Pages'.
 3. Click 'Install Now' and activate the plugin.
 
 **Manual Installation via FTP:**
@@ -50,7 +50,7 @@ Automatic Installation:
 
 == Screenshots ==
 
-1. The Public Draft Page Preview Settings page
+1. The Share Draft Pages Settings page
 2. Edit Page preview with a enabled public draft URL
 
 == Changelog ==

@@ -1,0 +1,10 @@
+.mfpp-status {
+    font-weight: bold;
+    margin-left: 10px;
+}
+.mfpp-enabled {
+    color: green;
+}
+.mfpp-disabled {
+    color: red;
+}
