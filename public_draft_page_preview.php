@@ -1,725 +1,802 @@
 <?php
 /**
+ * Public Draft Page Preview
+ *
+ * Public Draft Page Preview allows you to share a draft of any post or page with users before it is published.
+ * You can set a custom expiration time directly from the WP admin panel, ensuring full control over access duration.
+ * This plugin is perfect for collaborating with external users who don’t have access to your site but need to review content before it goes live.
+ * Generate a secure, expiring URL for easy sharing, and manage its availability with a simple checkbox in the post editor.
+ *
+ * @since             1.0.0
+ * @package           Public_Draft_Page_Preview
+ * 
  * Plugin Name: Public Draft Page Preview
- * Version: 1.0.1
- * Description: Allow anonymous users to preview a draft page before it is published, with control over expiration from the WP admin panel.
- * Author: Max Fedotov
+ * Plugin URI: https://castomize.com/public_draft_page_preview_plugin
+ * Description: Public Draft Page Preview allows you to share a draft of any post or page with users before it is published. You can set a custom expiration time directly from the WP admin panel, ensuring full control over access duration. This plugin is perfect for collaborating with external users who don’t have access to your site but need to review content before it goes live. Generate a secure, expiring URL for easy sharing, and manage its availability with a simple checkbox in the post editor.
+ * Version: 1.0.2
+ * Author: Castomize.com
  * Author URI: https://castomize.com
- * Plugin URI: https://castomize.com
- * Text Domain: public-draft-page-preview
+ * License: GPL-3.0
+ * License URI: http://www.gnu.org/licenses/gpl-3.0.txt
+ * Text Domain: public_draft_page_preview
  * Requires at least: 5.0
- * Tested up to: 6.4
+ * Tested up to: 6.6
  * Requires PHP: 5.6
- * License: GPLv2 or later
  *
- *  Copyright (C) 2024 Max Fedotov
+ *  Copyright (C) 2024 Castomize.com
  *
- *  This program is free software; you can redistribute it and/or
- *  modify it under the terms of the GNU General Public License
- *  as published by the Free Software Foundation; either version 2
- *  of the License, or (at your option) any later version.
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
- *  You should have received a copy of the GNU General Public License
- *  along with this program; if not, write to the Free Software
- *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-/**
- * Don't call this file directly.
- */
 if ( ! class_exists( 'WP' ) ) {
-	die();
+    die();
+}
+
+class MF_Public_Draft_Page_Preview {
+
+/**
+ * Registers actions and filters.
+ *
+ * @since 1.0.0
+ */
+public static function init() {
+	// Other existing actions and filters
+	add_action('admin_menu', array(__CLASS__, 'add_settings_page'));
+	add_action('admin_init', array(__CLASS__, 'register_settings'));
+
+	add_action( 'transition_post_status', array( __CLASS__, 'unregister_public_preview_on_status_change' ), 20, 3 );
+	add_action( 'post_updated', array( __CLASS__, 'unregister_public_preview_on_edit' ), 20, 2 );
+
+	if ( ! is_admin() ) {
+		add_action( 'pre_get_posts', array( __CLASS__, 'show_public_preview' ) );
+		add_filter( 'query_vars', array( __CLASS__, 'add_query_var' ) );
+		add_filter( 'user_switching_redirect_to', array( __CLASS__, 'user_switching_redirect_to' ), 10, 4 );
+	} else {
+		add_action( 'post_submitbox_misc_actions', array( __CLASS__, 'post_submitbox_misc_actions' ) );
+		add_action( 'save_post', array( __CLASS__, 'register_public_preview' ), 20, 2 );
+		add_action( 'wp_ajax_public_draft_page_preview', array( __CLASS__, 'ajax_register_public_preview' ) );
+		add_action( 'admin_enqueue_scripts', array( __CLASS__, 'enqueue_script' ) );
+		add_filter( 'display_post_states', array( __CLASS__, 'display_preview_state' ), 20, 2 );
+	}
+
+	// Register the settings link filter
+	add_filter( 'plugin_action_links_' . plugin_basename(__FILE__), array( __CLASS__, 'add_settings_link' ) );
 }
 
 /**
- * The class which controls the plugin.
+ * Adds a menu item to the Tools menu and a settings page.
  *
- * Inits at 'plugins_loaded' hook.
+ * @since 1.0.0
  */
-class MF_Public_Draft_Page_Preview {
+public static function add_settings_page() {
+	add_submenu_page(
+		'tools.php',
+		esc_html__( 'Public Draft Settings', 'public_draft_page_preview' ),
+		esc_html__( 'Public Draft Settings', 'public_draft_page_preview' ),
+		'manage_options',
+		'public-draft-page-preview-settings',
+		array(__CLASS__, 'settings_page_html')
+	);
+}
 
-	/**
-	 * Registers actions and filters.
-	 *
-	 * @since 1.0.0
-	 */
-	public static function init() {
-		add_action( 'transition_post_status', array( __CLASS__, 'unregister_public_preview_on_status_change' ), 20, 3 );
-		add_action( 'post_updated', array( __CLASS__, 'unregister_public_preview_on_edit' ), 20, 2 );
+/**
+ * Registers the setting for the custom expiration duration.
+ *
+ * @since 1.0.0
+ */
+public static function register_settings() {
+	register_setting('public_draft_page_preview_settings', 'mfpp_expiration_days');
+	register_setting('public_draft_page_preview_settings', 'mfpp_expiration_time');
 
-		if ( ! is_admin() ) {
-			add_action( 'pre_get_posts', array( __CLASS__, 'show_public_preview' ) );
-			add_filter( 'query_vars', array( __CLASS__, 'add_query_var' ) );
-			add_filter( 'user_switching_redirect_to', array( __CLASS__, 'user_switching_redirect_to' ), 10, 4 );
-		} else {
-			add_action( 'post_submitbox_misc_actions', array( __CLASS__, 'post_submitbox_misc_actions' ) );
-			add_action( 'save_post', array( __CLASS__, 'register_public_preview' ), 20, 2 );
-			add_action( 'wp_ajax_public-draft-page-preview', array( __CLASS__, 'ajax_register_public_preview' ) );
-			add_action( 'admin_enqueue_scripts', array( __CLASS__, 'enqueue_script' ) );
-			add_filter( 'display_post_states', array( __CLASS__, 'display_preview_state' ), 20, 2 );
-		}
+	add_settings_section(
+		'mfpp_main_section',
+		esc_html__( 'Settings', 'public_draft_page_preview' ),
+		null,
+		'public-draft-page-preview-settings'
+	);
+
+	add_settings_field(
+		'mfpp_expiration_days',
+		esc_html__( 'Expiration Duration', 'public_draft_page_preview' ),
+		array(__CLASS__, 'expiration_duration_field_html'),
+		'public-draft-page-preview-settings',
+		'mfpp_main_section'
+	);
+}
+
+/**
+ * HTML output for the expiration duration setting.
+ *
+ * @since 1.0.0
+ */
+public static function expiration_duration_field_html() {
+	$expiration_days = get_option('mfpp_expiration_days', 2); // Default is 2 days
+	$expiration_time = get_option('mfpp_expiration_time', '00:00');
+	?>
+	<input type="number" name="mfpp_expiration_days" value="<?php echo esc_attr($expiration_days); ?>" min="0" max="365">
+	<input type="time" name="mfpp_expiration_time" value="<?php echo esc_attr($expiration_time); ?>">
+	<p class="description"><?php echo esc_html__( 'Set the number of days and time before the public draft preview URL expires.', 'public_draft_page_preview' ); ?></p>
+	<?php
+}
+
+/**
+ * HTML output for the settings page.
+ *
+ * @since 1.0.0
+ */
+public static function settings_page_html() {
+	?>
+	<div class="wrap">
+		<h1><?php echo esc_html__( 'Public Draft Page Preview Settings', 'public_draft_page_preview' ); ?></h1>
+		<form action="options.php" method="post">
+			<?php
+			settings_fields('public_draft_page_preview_settings');
+			do_settings_sections('public-draft-page-preview-settings');
+			submit_button();
+			?>
+		</form>
+	</div>
+	<?php
+}
+
+/**
+ * Registers the JavaScript file for post(-new).php.
+ *
+ * @since 1.0.0
+ *
+ * @param string $hook_suffix Unique page identifier.
+ */
+public static function enqueue_script( $hook_suffix ) {
+	if ( ! in_array( $hook_suffix, array( 'post.php', 'post-new.php', 'tools_page_public-draft-page-preview-settings' ), true ) ) {
+		return;
 	}
 
-	/**
-	 * Registers the JavaScript file for post(-new).php.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param string $hook_suffix Unique page identifier.
-	 */
-	public static function enqueue_script( $hook_suffix ) {
-		if ( ! in_array( $hook_suffix, array( 'post.php', 'post-new.php' ), true ) ) {
-			return;
-		}
+    wp_enqueue_script(
+        'public-draft-page-preview',
+        plugins_url( "js/public-draft-page-preview.js", __FILE__ ), // Make sure this matches your actual file structure
+        array( 'jquery' ),
+        '1.0.2',
+        true
+    );
 
-		if ( get_current_screen()->is_block_editor() ) {
-			$script_assets_path = plugin_dir_path( __FILE__ ) . 'js/dist/gutenberg-integration.asset.php';
-			$script_assets      = file_exists( $script_assets_path ) ?
-				require $script_assets_path :
-				array(
-					'dependencies' => array(),
-					'version'      => '',
-				);
-			wp_enqueue_script(
-				'public-draft-page-preview-gutenberg',
-				plugins_url( 'js/dist/gutenberg-integration.js', __FILE__ ),
-				$script_assets['dependencies'],
-				$script_assets['version'],
-				true
-			);
+    wp_enqueue_style(
+        'public-draft-page-preview',
+        plugins_url( "css/public_draft_page_preview.css", __FILE__ ), // Ensure this matches your folder structure
+        array(),
+        '1.0.2'
+    );
 
-			wp_set_script_translations( 'public-draft-page-preview-gutenberg', 'public-draft-page-preview' );
+	wp_localize_script(
+		'public-draft-page-preview',
+		'MFPDPPreviewL10n',
+		array(
+			'enabled'  => __( 'Enabled', 'public-draft-page-preview' ),
+			'disabled' => __( 'Disabled', 'public-draft-page-preview' ),
+			'error'    => __( 'Error', 'public-draft-page-preview' ),
+		)
+	);
+}
 
-			$post            = get_post();
-			$preview_enabled = self::is_public_preview_enabled( $post );
-			wp_localize_script(
-				'public-draft-page-preview-gutenberg',
-				'MFPDPPreviewData',
-				array(
-					'previewEnabled' => $preview_enabled,
-					'previewUrl'     => $preview_enabled ? self::get_preview_link( $post ) : '',
-					'nonce'          => wp_create_nonce( 'public-draft-page-preview_' . $post->ID ),
-				)
-			);
-		} else {
-			$suffix = defined( 'SCRIPT_DEBUG' ) && SCRIPT_DEBUG ? '' : '.min';
-
-			wp_enqueue_script(
-				'public-draft-page-preview',
-				plugins_url( "js/public-draft-page-preview$suffix.js", __FILE__ ),
-				array( 'jquery' ),
-				'20240903',
-				true
-			);
-
-			wp_localize_script(
-				'public-draft-page-preview',
-				'MFPDPPreviewL10n',
-				array(
-					'enabled'  => __( 'Enabled!', 'public-draft-page-preview' ),
-					'disabled' => __( 'Disabled!', 'public-draft-page-preview' ),
-				)
-			);
-		}
+/**
+ * Adds "Public Preview" to the list of display states used in the Posts list table.
+ *
+ * @since 1.0.0
+ *
+ * @param array   $post_states An array of post display states.
+ * @param WP_Post $post        The current post object.
+ * @return array Filtered array of post display states.
+ */
+public static function display_preview_state( $post_states, $post ) {
+	if ( in_array( (int) $post->ID, self::get_preview_post_ids(), true ) ) {
+		$post_states['mfpp_enabled'] = __( 'Public Draft Preview', 'public-draft-page-preview' );
 	}
 
-	/**
-	 * Adds "Public Preview" to the list of display states used in the Posts list table.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param array   $post_states An array of post display states.
-	 * @param WP_Post $post        The current post object.
-	 * @return array Filtered array of post display states.
-	 */
-	public static function display_preview_state( $post_states, $post ) {
-		if ( in_array( (int) $post->ID, self::get_preview_post_ids(), true ) ) {
-			$post_states['pdpp_enabled'] = __( 'Public Draft Preview', 'public-draft-page-preview' );
-		}
+	return $post_states;
+}
 
-		return $post_states;
+/**
+ * Filters the redirect location after a user switches to another account or switches off with the User Switching plugin.
+ *
+ * @since 1.0.0
+ */
+public static function user_switching_redirect_to( $redirect_to, $redirect_type, $new_user, $old_user ) {
+	// Check if nonce exists and verify it
+	if ( ! isset( $_GET['_wpnonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_GET['_wpnonce'] ) ), 'public_draft_page_preview_nonce' ) ) {
+		return $redirect_to; // Invalid nonce, return the original redirect URL
 	}
 
-	/**
-	 * Filters the redirect location after a user switches to another account or switches off with the User Switching plugin.
-	 *
-	 * This is used to direct the user to the public preview of a post when they switch off from the post editing screen.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param string       $redirect_to   The target redirect location, or an empty string if none is specified.
-	 * @param string|null  $redirect_type The redirect type, see the `user_switching::REDIRECT_*` constants.
-	 * @param WP_User|null $new_user      The user being switched to, or null if there is none.
-	 * @param WP_User|null $old_user      The user being switched from, or null if there is none.
-	 * @return string The target redirect location.
-	 */
-	public static function user_switching_redirect_to( $redirect_to, $redirect_type, $new_user, $old_user ) {
-		$post_id = isset( $_GET['redirect_to_post'] ) ? (int) $_GET['redirect_to_post'] : 0;
+	$post_id = isset( $_GET['redirect_to_post'] ) ? (int) $_GET['redirect_to_post'] : 0;
 
-		if ( ! $post_id ) {
-			return $redirect_to;
-		}
-
-		$post = get_post( $post_id );
-
-		if ( ! $post ) {
-			return $redirect_to;
-		}
-
-		if ( ! $old_user || ! user_can( $old_user, 'edit_post', $post->ID ) ) {
-			return $redirect_to;
-		}
-
-		if ( ! self::is_public_preview_enabled( $post ) ) {
-			return $redirect_to;
-		}
-
-		return self::get_preview_link( $post );
+	if ( ! $post_id ) {
+		return $redirect_to;
 	}
 
-	/**
-	 * Adds the checkbox to the submit meta box.
-	 *
-	 * @since 1.0.0
-	 */
-	public static function post_submitbox_misc_actions() {
-		$post_types = get_post_types(
-			array(
-				'public' => true,
-			)
+	$post = get_post( $post_id );
+
+	if ( ! $post ) {
+		return $redirect_to;
+	}
+
+	if ( ! $old_user || ! user_can( $old_user, 'edit_post', $post->ID ) ) {
+		return $redirect_to;
+	}
+
+	if ( ! self::is_public_preview_enabled( $post ) ) {
+		return $redirect_to;
+	}
+
+	return self::get_preview_link( $post );
+}
+
+/**
+ * Adds the checkbox to the submit meta box.
+ *
+ * @since 1.0.0
+ */
+public static function post_submitbox_misc_actions() {
+	$post_types = get_post_types(
+		array(
+			'public' => true,
+		)
+	);
+
+	$post = get_post();
+
+	if ( ! in_array( $post->post_type, $post_types, true ) ) {
+		return false;
+	}
+
+	// Do nothing for auto drafts.
+	if ( 'auto-draft' === $post->post_status ) {
+		return false;
+	}
+
+	// Post is already published.
+	if ( in_array( $post->post_status, self::get_published_statuses(), true ) ) {
+		return false;
+	}
+
+	?>
+	<div class="misc-pub-section public-draft-page-preview">
+		<?php self::get_checkbox_html( $post ); ?>
+	</div>
+	<?php
+
+}
+
+/**
+ * Returns post statuses which represent a published post.
+ *
+ * @since 1.0.0
+ *
+ * @return array List with post statuses.
+ */
+private static function get_published_statuses() {
+	$published_statuses = array( 'publish', 'private' );
+
+	return apply_filters( 'mfpp_published_statuses', $published_statuses );
+}
+
+/**
+ * Prints the checkbox with the input field for the preview link.
+ *
+ * @since 1.0.0
+ *
+ * @param WP_Post $post The post object.
+ */
+private static function get_checkbox_html( $post ) {
+	if ( empty( $post ) ) {
+		$post = get_post();
+	}
+
+	wp_nonce_field('public-draft-page-preview_' . $post->ID, 'public_draft_page_preview_wpnonce');
+
+	$enabled = self::is_public_preview_enabled( $post );
+	?>
+	<label><input type="checkbox"<?php checked( $enabled ); ?> name="public_draft_page_preview" id="public-draft-page-preview" value="1" />
+	<?php esc_html_e( 'Enable public draft preview', 'public-draft-page-preview' ); ?> <span id="public-draft-page-preview-ajax"></span></label>
+
+	<div id="public-draft-page-preview-link" style="margin-top:6px"<?php echo $enabled ? '' : ' class="hidden"'; ?>>
+		<label>
+			<input type="text" name="public_draft_page_preview_link" class="regular-text" value="<?php echo esc_attr( $enabled ? self::get_preview_link( $post ) : '' ); ?>" style="width:99%" readonly />
+			<span class="description"><?php esc_html_e( 'Copy and share this preview URL.', 'public-draft-page-preview' ); ?></span>
+		</label>
+	</div>
+	<?php
+}
+
+/**
+ * Checks if a public preview is enabled for a post.
+ *
+ * @since 1.0.0
+ *
+ * @param WP_Post $post The post object.
+ * @return bool True if a public preview is enabled, false if not.
+ */
+private static function is_public_preview_enabled( $post ) {
+	$preview_post_ids = self::get_preview_post_ids();
+	return in_array( $post->ID, $preview_post_ids, true );
+}
+
+/**
+ * Returns the public preview link.
+ *
+ * The link is the home link with these parameters:
+ *  - preview, always true (query var for core)
+ *  - _mfpp, a custom nonce, see MF_Public_Draft_Page_Preview::create_nonce()
+ *  - page_id or p or p and post_type to specify the post.
+ *
+ * @since 1.0.0
+ *
+ * @param WP_Post $post The post object.
+ * @return string The generated public preview link.
+ */
+public static function get_preview_link( $post ) {
+	if ( 'page' === $post->post_type ) {
+		$args = array(
+			'page_id' => $post->ID,
 		);
-
-		$post = get_post();
-
-		if ( ! in_array( $post->post_type, $post_types, true ) ) {
-			return false;
-		}
-
-		// Do nothing for auto drafts.
-		if ( 'auto-draft' === $post->post_status ) {
-			return false;
-		}
-
-		// Post is already published.
-		if ( in_array( $post->post_status, self::get_published_statuses(), true ) ) {
-			return false;
-		}
-
-		?>
-		<div class="misc-pub-section public-draft-page-preview">
-			<?php self::get_checkbox_html( $post ); ?>
-		</div>
-		<?php
-
+	} elseif ( 'post' === $post->post_type ) {
+		$args = array(
+			'p' => $post->ID,
+		);
+	} else {
+		$args = array(
+			'p'         => $post->ID,
+			'post_type' => $post->post_type,
+		);
 	}
 
-	/**
-	 * Returns post statuses which represent a published post.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @return array List with post statuses.
-	 */
-	private static function get_published_statuses() {
-		$published_statuses = array( 'publish', 'private' );
+	$args['preview'] = true;
+	$args['_mfpp']    = self::create_nonce( 'public_draft_page_preview_' . $post->ID );
 
-		return apply_filters( 'pdpp_published_statuses', $published_statuses );
-	}
+	$link = add_query_arg( $args, home_url( '/' ) );
 
-	/**
-	 * Prints the checkbox with the input field for the preview link.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param WP_Post $post The post object.
-	 */
-	private static function get_checkbox_html( $post ) {
-		if ( empty( $post ) ) {
-			$post = get_post();
-		}
+	return apply_filters( 'mfpp_preview_link', $link, $post->ID, $post );
+}
 
-		wp_nonce_field( 'public-draft-page-preview_' . $post->ID, 'public_draft_page_preview_wpnonce' );
-
-		$enabled = self::is_public_preview_enabled( $post );
-		?>
-		<label><input type="checkbox"<?php checked( $enabled ); ?> name="public_draft_page_preview" id="public-draft-page-preview" value="1" />
-		<?php _e( 'Enable public draft preview', 'public-draft-page-preview' ); ?> <span id="public-draft-page-preview-ajax"></span></label>
-
-		<div id="public-draft-page-preview-link" style="margin-top:6px"<?php echo $enabled ? '' : ' class="hidden"'; ?>>
-			<label>
-				<input type="text" name="public_draft_page_preview_link" class="regular-text" value="<?php echo esc_attr( $enabled ? self::get_preview_link( $post ) : '' ); ?>" style="width:99%" readonly />
-				<span class="description"><?php _e( 'Copy and share this preview URL.', 'public-draft-page-preview' ); ?></span>
-			</label>
-		</div>
-		<?php
-	}
-
-	/**
-	 * Checks if a public preview is enabled for a post.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param WP_Post $post The post object.
-	 * @return bool True if a public preview is enabled, false if not.
-	 */
-	private static function is_public_preview_enabled( $post ) {
-		$preview_post_ids = self::get_preview_post_ids();
-		return in_array( $post->ID, $preview_post_ids, true );
-	}
-
-	/**
-	 * Returns the public preview link.
-	 *
-	 * The link is the home link with these parameters:
-	 *  - preview, always true (query var for core)
-	 *  - _mfpp, a custom nonce, see MF_Public_Draft_Page_Preview::create_nonce()
-	 *  - page_id or p or p and post_type to specify the post.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param WP_Post $post The post object.
-	 * @return string The generated public preview link.
-	 */
-	public static function get_preview_link( $post ) {
-		if ( 'page' === $post->post_type ) {
-			$args = array(
-				'page_id' => $post->ID,
-			);
-		} elseif ( 'post' === $post->post_type ) {
-			$args = array(
-				'p' => $post->ID,
-			);
-		} else {
-			$args = array(
-				'p'         => $post->ID,
-				'post_type' => $post->post_type,
-			);
-		}
-
-		$args['preview'] = true;
-		$args['_mfpp']    = self::create_nonce( 'public_draft_page_preview_' . $post->ID );
-
-		$link = add_query_arg( $args, home_url( '/' ) );
-
-		return apply_filters( 'pdpp_preview_link', $link, $post->ID, $post );
-	}
-
-	/**
-	 * (Un)Registers a post for a public preview.
-	 *
-	 * Runs when a post is saved, ignores revisions and autosaves.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param int    $post_id The post id.
-	 * @param object $post    The post object.
-	 * @return bool Returns true on a success, false on a failure.
-	 */
-	public static function register_public_preview( $post_id, $post ) {
-		if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
-			return false;
-		}
-
-		if ( wp_is_post_revision( $post_id ) ) {
-			return false;
-		}
-
-		if ( empty( $_POST['public_draft_page_preview_wpnonce'] ) || ! wp_verify_nonce( $_POST['public_draft_page_preview_wpnonce'], 'public-draft-page-preview_' . $post_id ) ) {
-			return false;
-		}
-
-		if ( ! current_user_can( 'edit_post', $post_id ) ) {
-			return false;
-		}
-
-		$preview_post_ids = self::get_preview_post_ids();
-		$preview_post_id  = (int) $post->ID;
-
-		if ( empty( $_POST['public_draft_page_preview'] ) && in_array( $preview_post_id, $preview_post_ids, true ) ) {
-			$preview_post_ids = array_diff( $preview_post_ids, (array) $preview_post_id );
-		} elseif (
-			! empty( $_POST['public_draft_page_preview'] ) &&
-			! empty( $_POST['original_post_status'] ) &&
-			! in_array( $_POST['original_post_status'], self::get_published_statuses(), true ) &&
-			in_array( $post->post_status, self::get_published_statuses(), true )
-		) {
-			$preview_post_ids = array_diff( $preview_post_ids, (array) $preview_post_id );
-		} elseif ( ! empty( $_POST['public_draft_page_preview'] ) && ! in_array( $preview_post_id, $preview_post_ids, true ) ) {
-			$preview_post_ids = array_merge( $preview_post_ids, (array) $preview_post_id );
-		} else {
-			return false; // Nothing has changed.
-		}
-
-		return self::set_preview_post_ids( $preview_post_ids );
-	}
-
-	/**
-	 * Unregisters a post for public preview when a (scheduled) post gets published
-	 * or trashed.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param string  $new_status New post status.
-	 * @param string  $old_status Old post status.
-	 * @param WP_Post $post       Post object.
-	 * @return bool Returns true on a success, false on a failure.
-	 */
-	public static function unregister_public_preview_on_status_change( $new_status, $old_status, $post ) {
-		$disallowed_status   = self::get_published_statuses();
-		$disallowed_status[] = 'trash';
-
-		if ( in_array( $new_status, $disallowed_status, true ) ) {
-			return self::unregister_public_preview( $post->ID );
-		}
-
+/**
+ * (Un)Registers a post for a public preview.
+ *
+ * Runs when a post is saved, ignores revisions and autosaves.
+ *
+ * @since 1.0.0
+ *
+ * @param int    $post_id The post id.
+ * @param object $post    The post object.
+ * @return bool Returns true on a success, false on a failure.
+ */
+public static function register_public_preview( $post_id, $post ) {
+	if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
 		return false;
 	}
 
-	/**
-	 * Unregisters a post for public preview when a post gets published or trashed.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param int     $post_id Post ID.
-	 * @param WP_Post $post    Post object.
-	 * @return bool Returns true on a success, false on a failure.
-	 */
-	public static function unregister_public_preview_on_edit( $post_id, $post ) {
-		$disallowed_status   = self::get_published_statuses();
-		$disallowed_status[] = 'trash';
-
-		if ( in_array( $post->post_status, $disallowed_status, true ) ) {
-			return self::unregister_public_preview( $post_id );
-		}
-
+	if ( wp_is_post_revision( $post_id ) ) {
 		return false;
 	}
 
-	/**
-	 * Unregisters a post for public preview.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param int $post_id Post ID.
-	 * @return bool Returns true on a success, false on a failure.
-	 */
-	private static function unregister_public_preview( $post_id ) {
-		$post_id          = (int) $post_id;
-		$preview_post_ids = self::get_preview_post_ids();
+	$nonce = isset( $_POST['public_draft_page_preview_wpnonce'] ) ? sanitize_text_field( wp_unslash( $_POST['public_draft_page_preview_wpnonce'] ) ) : '';
 
-		if ( ! in_array( $post_id, $preview_post_ids, true ) ) {
-			return false;
-		}
-
-		$preview_post_ids = array_diff( $preview_post_ids, (array) $post_id );
-
-		return self::set_preview_post_ids( $preview_post_ids );
+	if ( ! wp_verify_nonce( $nonce, 'public-draft-page-preview_' . $post_id ) ) {
+		return false;
 	}
 
-	/**
-	 * (Un)Registers a post for a public preview for an AJAX request.
-	 *
-	 * @since 1.0.0
-	 */
-	public static function ajax_register_public_preview() {
-		if ( ! isset( $_POST['post_ID'], $_POST['checked'] ) ) {
-			wp_send_json_error( 'incomplete_data' );
+	if ( ! current_user_can( 'edit_post', $post_id ) ) {
+		return false;
+	}
+
+	$preview_post_ids = self::get_preview_post_ids();
+	$preview_post_id  = (int) $post->ID;
+
+	if ( empty( $_POST['public_draft_page_preview'] ) && in_array( $preview_post_id, $preview_post_ids, true ) ) {
+		$preview_post_ids = array_diff( $preview_post_ids, (array) $preview_post_id );
+	} elseif (
+		! empty( $_POST['public_draft_page_preview'] ) &&
+		! empty( $_POST['original_post_status'] ) &&
+		! in_array( $_POST['original_post_status'], self::get_published_statuses(), true ) &&
+		in_array( $post->post_status, self::get_published_statuses(), true )
+	) {
+		$preview_post_ids = array_diff( $preview_post_ids, (array) $preview_post_id );
+	} elseif ( ! empty( $_POST['public_draft_page_preview'] ) && ! in_array( $preview_post_id, $preview_post_ids, true ) ) {
+		$preview_post_ids = array_merge( $preview_post_ids, (array) $preview_post_id );
+	} else {
+		return false; // Nothing has changed.
+	}
+
+	return self::set_preview_post_ids( $preview_post_ids );
+}
+
+/**
+ * Unregisters a post for public preview when a (scheduled) post gets published
+ * or trashed.
+ *
+ * @since 1.0.0
+ *
+ * @param string  $new_status New post status.
+ * @param string  $old_status Old post status.
+ * @param WP_Post $post       Post object.
+ * @return bool Returns true on a success, false on a failure.
+ */
+public static function unregister_public_preview_on_status_change( $new_status, $old_status, $post ) {
+	$disallowed_status   = self::get_published_statuses();
+	$disallowed_status[] = 'trash';
+
+	if ( in_array( $new_status, $disallowed_status, true ) ) {
+		return self::unregister_public_preview( $post->ID );
+	}
+
+	return false;
+}
+
+/**
+ * Unregisters a post for public preview when a post gets published or trashed.
+ *
+ * @since 1.0.0
+ *
+ * @param int     $post_id Post ID.
+ * @param WP_Post $post    Post object.
+ * @return bool Returns true on a success, false on a failure.
+ */
+public static function unregister_public_preview_on_edit( $post_id, $post ) {
+	$disallowed_status   = self::get_published_statuses();
+	$disallowed_status[] = 'trash';
+
+	if ( in_array( $post->post_status, $disallowed_status, true ) ) {
+		return self::unregister_public_preview( $post_id );
+	}
+
+	return false;
+}
+
+/**
+ * Unregisters a post for public preview.
+ *
+ * @since 1.0.0
+ *
+ * @param int $post_id Post ID.
+ * @return bool Returns true on a success, false on a failure.
+ */
+private static function unregister_public_preview( $post_id ) {
+	$post_id          = (int) $post_id;
+	$preview_post_ids = self::get_preview_post_ids();
+
+	if ( ! in_array( $post_id, $preview_post_ids, true ) ) {
+		return false;
+	}
+
+	$preview_post_ids = array_diff( $preview_post_ids, (array) $post_id );
+
+	return self::set_preview_post_ids( $preview_post_ids );
+}
+
+/**
+ * (Un)Registers a post for a public preview for an AJAX request.
+ *
+ * @since 1.0.0
+ */
+public static function ajax_register_public_preview() {
+	$nonce = isset( $_POST['_wpnonce'] ) ? sanitize_text_field( wp_unslash( $_POST['_wpnonce'] ) ) : '';
+
+	if ( ! isset( $_POST['post_ID'], $_POST['checked'] ) ) {
+		wp_send_json_error( 'incomplete_data' );
+	}
+
+	$preview_post_id = (int) $_POST['post_ID'];
+	$checked = sanitize_text_field( wp_unslash( $_POST['checked'] ) );
+
+	if ( ! wp_verify_nonce( $nonce, 'public-draft-page-preview_' . $preview_post_id ) ) {
+		wp_send_json_error( 'invalid_nonce' );
+	}
+
+	$post = get_post( $preview_post_id );
+
+	if ( ! current_user_can( 'edit_post', $preview_post_id ) ) {
+		wp_send_json_error( 'cannot_edit' );
+	}
+
+	$preview_post_ids = self::get_preview_post_ids();
+
+	if ( 'true' === $checked && ! in_array( $preview_post_id, $preview_post_ids, true ) ) {
+		$preview_post_ids[] = $preview_post_id;
+	} elseif ( 'false' === $checked && in_array( $preview_post_id, $preview_post_ids, true ) ) {
+		$preview_post_ids = array_diff( $preview_post_ids, array( $preview_post_id ) );
+	} else {
+		wp_send_json_error( 'unknown_status' );
+	}
+
+	$result = self::set_preview_post_ids( $preview_post_ids );
+
+	if ( ! $result ) {
+		wp_send_json_error( 'not_saved' );
+	}
+
+	$data = array();
+	if ( 'true' === $checked ) {
+		$data['preview_url'] = self::get_preview_link( $post );
+		$data['status'] = 'enabled';
+	} else {
+		$data['status'] = 'disabled';
+	}
+
+	wp_send_json_success( $data );
+}
+
+/**
+ * Registers the new query var `_mfpp`.
+ *
+ * @since 1.0.0
+ *
+ * @param  array $qv Existing list of query variables.
+ * @return array List of query variables.
+ */
+public static function add_query_var( $qv ) {
+	$qv[] = '_mfpp';
+
+	return $qv;
+}
+
+/**
+ * Registers the filter to handle a public preview.
+ *
+ * Filter will be set if it's the main query, a preview, a singular page
+ * and the query var `_mfpp` exists.
+ *
+ * @since 1.0.0
+ *
+ * @param object $query The WP_Query object.
+ */
+public static function show_public_preview( $query ) {
+	if (
+		$query->is_main_query() &&
+		$query->is_preview() &&
+		$query->is_singular() &&
+		$query->get( '_mfpp' )
+	) {
+		if ( ! headers_sent() ) {
+			nocache_headers();
+			header( 'X-Robots-Tag: noindex' );
 		}
-
-		$preview_post_id = (int) $_POST['post_ID'];
-		$checked         = (string) $_POST['checked'];
-
-		check_ajax_referer( 'public-draft-page-preview_' . $preview_post_id );
-
-		$post = get_post( $preview_post_id );
-
-		if ( ! current_user_can( 'edit_post', $preview_post_id ) ) {
-			wp_send_json_error( 'cannot_edit' );
-		}
-
-		if ( in_array( $post->post_status, self::get_published_statuses(), true ) ) {
-			wp_send_json_error( 'invalid_post_status' );
-		}
-
-		$preview_post_ids = self::get_preview_post_ids();
-
-		if ( 'false' === $checked && in_array( $preview_post_id, $preview_post_ids, true ) ) {
-			$preview_post_ids = array_diff( $preview_post_ids, (array) $preview_post_id );
-		} elseif ( 'true' === $checked && ! in_array( $preview_post_id, $preview_post_ids, true ) ) {
-			$preview_post_ids = array_merge( $preview_post_ids, (array) $preview_post_id );
+		if ( function_exists( 'wp_robots_no_robots' ) ) { // WordPress 5.7+
+			add_filter( 'wp_robots', 'wp_robots_no_robots' );
 		} else {
-			wp_send_json_error( 'unknown_status' );
+			add_action( 'wp_head', 'wp_no_robots' );
 		}
 
-		$ret = self::set_preview_post_ids( $preview_post_ids );
+		add_filter( 'posts_results', array( __CLASS__, 'set_post_to_publish' ), 10, 2 );
+	}
+}
 
-		if ( ! $ret ) {
-			wp_send_json_error( 'not_saved' );
-		}
-
-		$data = null;
-		if ( 'true' === $checked ) {
-			$data = array( 'preview_url' => self::get_preview_link( $post ) );
-		}
-
-		wp_send_json_success( $data );
+/**
+ * Checks if a public preview is available and allowed.
+ * Verifies the nonce and if the post id is registered for a public preview.
+ *
+ * @since 1.0.0
+ *
+ * @param int $post_id The post id.
+ * @return bool True if a public preview is allowed, false on a failure.
+ */
+private static function is_public_preview_available( $post_id ) {
+	if ( empty( $post_id ) ) {
+		return false;
 	}
 
-	/**
-	 * Registers the new query var `_mfpp`.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param  array $qv Existing list of query variables.
-	 * @return array List of query variables.
-	 */
-	public static function add_query_var( $qv ) {
-		$qv[] = '_mfpp';
-
-		return $qv;
+	if ( ! self::verify_nonce( get_query_var( '_mfpp' ), 'public_draft_page_preview_' . $post_id ) ) {
+		wp_die( esc_html__( 'This link has expired!', 'public-draft-page-preview' ), 403 );
 	}
 
-	/**
-	 * Registers the filter to handle a public preview.
-	 *
-	 * Filter will be set if it's the main query, a preview, a singular page
-	 * and the query var `_mfpp` exists.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param object $query The WP_Query object.
-	 */
-	public static function show_public_preview( $query ) {
-		if (
-			$query->is_main_query() &&
-			$query->is_preview() &&
-			$query->is_singular() &&
-			$query->get( '_mfpp' )
-		) {
-			if ( ! headers_sent() ) {
-				nocache_headers();
-				header( 'X-Robots-Tag: noindex' );
-			}
-			if ( function_exists( 'wp_robots_no_robots' ) ) { // WordPress 5.7+
-				add_filter( 'wp_robots', 'wp_robots_no_robots' );
-			} else {
-				add_action( 'wp_head', 'wp_no_robots' );
-			}
-
-			add_filter( 'posts_results', array( __CLASS__, 'set_post_to_publish' ), 10, 2 );
-		}
+	if ( ! in_array( $post_id, self::get_preview_post_ids(), true ) ) {
+		wp_die( esc_html__( 'No public draft preview available!', 'public-draft-page-preview' ), 404 );
 	}
 
-	/**
-	 * Checks if a public preview is available and allowed.
-	 * Verifies the nonce and if the post id is registered for a public preview.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param int $post_id The post id.
-	 * @return bool True if a public preview is allowed, false on a failure.
-	 */
-	private static function is_public_preview_available( $post_id ) {
-		if ( empty( $post_id ) ) {
-			return false;
-		}
+	return true;
+}
 
-		if ( ! self::verify_nonce( get_query_var( '_mfpp' ), 'public_draft_page_preview_' . $post_id ) ) {
-			wp_die( __( 'This link has expired!', 'public-draft-page-preview' ), 403 );
-		}
-
-		if ( ! in_array( $post_id, self::get_preview_post_ids(), true ) ) {
-			wp_die( __( 'No public draft preview available!', 'public-draft-page-preview' ), 404 );
-		}
-
-		return true;
+/**
+ * Filters the HTML output of individual page number links to use the
+ * preview link.
+ *
+ * @since 1.0.0
+ *
+ * @param string $link        The page number HTML output.
+ * @param int    $page_number Page number for paginated posts' page links.
+ * @return string The filtered HTML output.
+ */
+public static function filter_wp_link_pages_link( $link, $page_number ) {
+	$post = get_post();
+	if ( ! $post ) {
+		return $link;
 	}
 
-	/**
-	 * Filters the HTML output of individual page number links to use the
-	 * preview link.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param string $link        The page number HTML output.
-	 * @param int    $page_number Page number for paginated posts' page links.
-	 * @return string The filtered HTML output.
-	 */
-	public static function filter_wp_link_pages_link( $link, $page_number ) {
-		$post = get_post();
-		if ( ! $post ) {
-			return $link;
-		}
+	$preview_link = self::get_preview_link( $post );
+	$preview_link = add_query_arg( 'page', $page_number, $preview_link );
 
-		$preview_link = self::get_preview_link( $post );
-		$preview_link = add_query_arg( 'page', $page_number, $preview_link );
+	return preg_replace( '~href=(["|\'])(.+?)\1~', 'href=$1' . $preview_link . '$1', $link );
+}
 
-		return preg_replace( '~href=(["|\'])(.+?)\1~', 'href=$1' . $preview_link . '$1', $link );
-	}
+/**
+ * Sets the post status of the first post to publish, so we don't have to do anything
+ * *too* hacky to get it to load the preview.
+ *
+ * @since 1.0.0
+ *
+ * @param  array $posts The post to preview.
+ * @return array The post that is being previewed.
+ */
+public static function set_post_to_publish( $posts ) {
+	// Remove the filter again, otherwise it will be applied to other queries too.
+	remove_filter( 'posts_results', array( __CLASS__, 'set_post_to_publish' ), 10 );
 
-	/**
-	 * Sets the post status of the first post to publish, so we don't have to do anything
-	 * *too* hacky to get it to load the preview.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param  array $posts The post to preview.
-	 * @return array The post that is being previewed.
-	 */
-	public static function set_post_to_publish( $posts ) {
-		// Remove the filter again, otherwise it will be applied to other queries too.
-		remove_filter( 'posts_results', array( __CLASS__, 'set_post_to_publish' ), 10 );
-
-		if ( empty( $posts ) ) {
-			return $posts;
-		}
-
-		$post_id = (int) $posts[0]->ID;
-
-		// If the post has gone live, redirect to it's proper permalink.
-		self::maybe_redirect_to_published_post( $post_id );
-
-		if ( self::is_public_preview_available( $post_id ) ) {
-			// Set post status to publish so that it's visible.
-			$posts[0]->post_status = 'publish';
-
-			// Disable comments and pings for this post.
-			add_filter( 'comments_open', '__return_false' );
-			add_filter( 'pings_open', '__return_false' );
-			add_filter( 'wp_link_pages_link', array( __CLASS__, 'filter_wp_link_pages_link' ), 10, 2 );
-		}
-
+	if ( empty( $posts ) ) {
 		return $posts;
 	}
 
-	/**
-	 * Redirects to post's proper permalink, if it has gone live.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param int $post_id The post id.
-	 * @return false False of post status is not a published status.
-	 */
-	private static function maybe_redirect_to_published_post( $post_id ) {
-		if ( ! in_array( get_post_status( $post_id ), self::get_published_statuses(), true ) ) {
-			return false;
-		}
+	$post_id = (int) $posts[0]->ID;
 
-		wp_safe_redirect( get_permalink( $post_id ), 301 );
-		exit;
+	// If the post has gone live, redirect to its proper permalink.
+	self::maybe_redirect_to_published_post( $post_id );
+
+	if ( self::is_public_preview_available( $post_id ) ) {
+		// Set post status to publish so that it's visible.
+		$posts[0]->post_status = 'publish';
+
+		// Disable comments and pings for this post.
+		add_filter( 'comments_open', '__return_false' );
+		add_filter( 'pings_open', '__return_false' );
+		add_filter( 'wp_link_pages_link', array( __CLASS__, 'filter_wp_link_pages_link' ), 10, 2 );
 	}
 
-	/**
-	 * Get the time-dependent variable for nonce creation.
-	 *
-	 * @see wp_nonce_tick()
-	 *
-	 * @since 1.0.0
-	 *
-	 * @return int The time-dependent variable.
-	 */
-	private static function nonce_tick() {
-		$nonce_life = apply_filters( 'mfpp_nonce_life', 2 * DAY_IN_SECONDS ); // 2 days.
+	return $posts;
+}
 
-		return ceil( time() / ( $nonce_life / 2 ) );
-	}
-
-	/**
-	 * Creates a random, one time use token. Without an UID.
-	 *
-	 * @see wp_create_nonce()
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param  string|int $action Scalar value to add context to the nonce.
-	 * @return string The one use form token.
-	 */
-	private static function create_nonce( $action = -1 ) {
-		$i = self::nonce_tick();
-
-		return substr( wp_hash( $i . $action, 'nonce' ), -12, 10 );
-	}
-
-	/**
-	 * Verifies that correct nonce was used with time limit. Without an UID.
-	 *
-	 * @see wp_verify_nonce()
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param string     $nonce  Nonce that was used in the form to verify.
-	 * @param string|int $action Should give context to what is taking place and be the same when nonce was created.
-	 * @return bool               Whether the nonce check passed or failed.
-	 */
-	private static function verify_nonce( $nonce, $action = -1 ) {
-		$i = self::nonce_tick();
-
-		// Nonce generated 0-12 hours ago.
-		if ( substr( wp_hash( $i . $action, 'nonce' ), -12, 10 ) === $nonce ) {
-			return 1;
-		}
-
-		// Nonce generated 12-24 hours ago.
-		if ( substr( wp_hash( ( $i - 1 ) . $action, 'nonce' ), -12, 10 ) === $nonce ) {
-			return 2;
-		}
-
-		// Invalid nonce.
+/**
+ * Redirects to post's proper permalink, if it has gone live.
+ *
+ * @since 1.0.0
+ *
+ * @param int $post_id The post id.
+ * @return false False of post status is not a published status.
+ */
+private static function maybe_redirect_to_published_post( $post_id ) {
+	if ( ! in_array( get_post_status( $post_id ), self::get_published_statuses(), true ) ) {
 		return false;
 	}
 
-	/**
-	 * Returns the post IDs which are registered for a public preview.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @return array The post IDs. (Empty array if no IDs are registered.)
-	 */
-	private static function get_preview_post_ids() {
-		$post_ids = get_option( 'public_draft_page_preview', array() );
-		$post_ids = array_map( 'intval', $post_ids );
+	wp_safe_redirect( get_permalink( $post_id ), 301 );
+	exit;
+}
 
-		return $post_ids;
+/**
+ * Get the time-dependent variable for nonce creation.
+ *
+ * @see wp_nonce_tick()
+ *
+ * @since 1.0.0
+ *
+ * @return int The time-dependent variable.
+ */
+private static function nonce_tick() {
+	$expiration_days = get_option('mfpp_expiration_days', 2); // Default is 2 days
+	$expiration_time = get_option('mfpp_expiration_time', '00:00');
+	$nonce_life = ($expiration_days * DAY_IN_SECONDS) + strtotime($expiration_time) - strtotime('00:00');
+
+	return ceil(time() / ($nonce_life / 2));
+}
+
+/**
+ * Creates a random, one time use token. Without an UID.
+ *
+ * @see wp_create_nonce()
+ *
+ * @since 1.0.0
+ *
+ * @param  string|int $action Scalar value to add context to the nonce.
+ * @return string The one use form token.
+ */
+private static function create_nonce( $action = -1 ) {
+	$i = self::nonce_tick();
+
+	return substr( wp_hash( $i . $action, 'nonce' ), -12, 10 );
+}
+
+/**
+ * Verifies that correct nonce was used with time limit. Without an UID.
+ *
+ * @see wp_verify_nonce()
+ *
+ * @since 1.0.0
+ *
+ * @param string     $nonce  Nonce that was used in the form to verify.
+ * @param string|int $action Should give context to what is taking place and be the same when nonce was created.
+ * @return bool Whether the nonce check passed or failed.
+ */
+private static function verify_nonce( $nonce, $action = -1 ) {
+	$i = self::nonce_tick();
+
+	// Nonce generated 0-12 hours ago.
+	if ( substr( wp_hash( $i . $action, 'nonce' ), -12, 10 ) === $nonce ) {
+		return 1;
 	}
 
-	/**
-	 * Saves the post IDs which are registered for a public preview.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param array $post_ids List of post IDs that have a preview.
-	 * @return bool Returns true on a success, false on a failure.
-	 */
-	private static function set_preview_post_ids( $post_ids = array() ) {
-		$post_ids = array_map( 'absint', $post_ids );
-		$post_ids = array_filter( $post_ids );
-		$post_ids = array_unique( $post_ids );
-
-		return update_option( 'public_draft_page_preview', $post_ids );
+	// Nonce generated 12-24 hours ago.
+	if ( substr( wp_hash( ( $i - 1 ) . $action, 'nonce' ), -12, 10 ) === $nonce ) {
+		return 2;
 	}
 
-	/**
-	 * Deletes the option 'public_draft_page_preview' if the plugin will be uninstalled.
-	 *
-	 * @since 1.0.0
-	 */
-	public static function uninstall() {
-		delete_option( 'public_draft_page_preview' );
-	}
+	// Invalid nonce.
+	return false;
+}
 
-	/**
-	 * Performs actions on plugin activation.
-	 *
-	 * @since 1.0.0
-	 */
-	public static function activate() {
-		register_uninstall_hook( __FILE__, array( 'MF_Public_Draft_Page_Preview', 'uninstall' ) );
-	}
+/**
+ * Returns the post IDs which are registered for a public preview.
+ *
+ * @since 1.0.0
+ *
+ * @return array The post IDs. (Empty array if no IDs are registered.)
+ */
+private static function get_preview_post_ids() {
+	$post_ids = get_option( 'public_draft_page_preview', array() );
+	$post_ids = array_map( 'intval', $post_ids );
+
+	return $post_ids;
+}
+
+/**
+ * Saves the post IDs which are registered for a public preview.
+ *
+ * @since 1.0.0
+ *
+ * @param array $post_ids List of post IDs that have a preview.
+ * @return bool Returns true on a success, false on a failure.
+ */
+private static function set_preview_post_ids( $post_ids = array() ) {
+	$post_ids = array_map( 'absint', $post_ids );
+	$post_ids = array_filter( $post_ids );
+	$post_ids = array_unique( $post_ids );
+
+	return update_option( 'public_draft_page_preview', $post_ids );
+}
+
+/**
+ * Add a settings link to the plugin actions.
+ *
+ * @param array $links An array of plugin action links.
+ * @return array The modified array of links.
+ */
+public static function add_settings_link( $links ) {
+	$settings_link = '<a href="tools.php?page=public-draft-page-preview-settings">' . __( 'Settings', 'public-draft-page-preview' ) . '</a>';
+	array_unshift( $links, $settings_link );
+	return $links;
+}
+
+
+/**
+ * Deletes the option 'public_draft_page_preview' if the plugin will be uninstalled.
+ *
+ * @since 1.0.0
+ */
+public static function uninstall() {
+	delete_option( 'public_draft_page_preview' );
+}
+
+/**
+ * Performs actions on plugin activation.
+ *
+ * @since 1.0.0
+ */
+public static function activate() {
+	register_uninstall_hook( __FILE__, array( 'MF_Public_Draft_Page_Preview', 'uninstall' ) );
+}
 }
 
 add_action( 'plugins_loaded', array( 'MF_Public_Draft_Page_Preview', 'init' ) );
